@@ -1,4 +1,4 @@
-# dark_mode_window.py
+# window.py
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QSlider, QLabel,
@@ -27,7 +27,11 @@ class DarkModeWindow(QMainWindow):
         # Define scaling factors for each PID parameter
         self.kp_scale = 100.0    # Kp ranges from 0.00 to 10.00 with two decimal places
         self.ki_scale = 1000.0   # Ki ranges from 0.000 to 10.000 with three decimal places
-        self.kd_scale = 100.0     # Kd ranges from 0.00 to 10.00 with two decimal places
+        self.kd_scale = 100.0    # Kd ranges from 0.00 to 10.00 with two decimal places
+
+        # Scales for omega_n and damping_ratio
+        self.omega_n_scale = 100.0    # ωn ranges from 0.10 to 10.00
+        self.damping_ratio_scale = 1000.0  # ζ ranges from 0.000 to 2.000
 
         # Set up the central widget and layout
         central_widget = QWidget(self)
@@ -41,7 +45,7 @@ class DarkModeWindow(QMainWindow):
         # Initialize PID controller with default values
         self.pid_controller = PIDController(
             kp=0.1, ki=0.005, kd=0.02, setpoint=200.0,
-            output_limits=(0, 400), sample_time=0.01
+            output_limits=(0, 400), sample_time=0.01, omega_n=1.0, damping_ratio=0.7
         )
 
         # Initial configuration of the graph
@@ -50,9 +54,16 @@ class DarkModeWindow(QMainWindow):
 
         # Create sliders for PID parameters
         sliders_layout = QGridLayout()
-        self.create_slider(sliders_layout, "Kp:", "slider_kp", self.pid_controller.kp, self.kp_scale, 0)
-        self.create_slider(sliders_layout, "Ki:", "slider_ki", self.pid_controller.ki, self.ki_scale, 1)
-        self.create_slider(sliders_layout, "Kd:", "slider_kd", self.pid_controller.kd, self.kd_scale, 2)
+        self.create_slider(sliders_layout, "Kp:", "slider_kp", self.pid_controller.kp, self.kp_scale, 0, min_value=0.0, max_value=10.0)
+        self.create_slider(sliders_layout, "Ki:", "slider_ki", self.pid_controller.ki, self.ki_scale, 1, min_value=0.0, max_value=10.0)
+        self.create_slider(sliders_layout, "Kd:", "slider_kd", self.pid_controller.kd, self.kd_scale, 2, min_value=0.0, max_value=10.0)
+
+        # Create sliders for process parameters
+        self.create_slider(sliders_layout, "ωn (Natural Freq.):", "slider_omega_n",
+                           self.pid_controller.omega_n, self.omega_n_scale, 3, min_value=0.1, max_value=10.0)
+        self.create_slider(sliders_layout, "ζ (Damping Rate):", "slider_damping_ratio",
+                           self.pid_controller.damping_ratio, self.damping_ratio_scale, 4, min_value=0.0, max_value=2.0)
+
         main_layout.addLayout(sliders_layout)
 
         # Create setpoint slider
@@ -83,26 +94,31 @@ class DarkModeWindow(QMainWindow):
         self.ax.set_xlabel("Time (s)")
         self.ax.set_ylabel("Pressure (Bar)")
         self.ax.set_title("PID Step Response")
-        self.ax.set_ylim(0, 400)  # Ensure y-axis ranges from 0 to 400 Bar
+        self.ax.set_ylim(50, 410)  # Adjusted to include values from 60 to 400 bar
         self.ax.grid(True, color="#505050", linestyle="--")
         self.line, = self.ax.plot([], [], color="#CC7832", label='Output')
         self.ax.legend()
 
-    def create_slider(self, layout, label_text, slider_name, initial_value, scale, row):
-        """Create sliders for PID parameters with correct initial settings."""
+    def create_slider(self, layout, label_text, slider_name, initial_value,
+                      scale, row, min_value, max_value):
+        """Create sliders for parameters with correct initial settings."""
         label = QLabel(label_text, self)
         label.setStyleSheet("color: #a9b7c6; font: 10pt;")
         layout.addWidget(label, row, 0)
 
         slider = QSlider(Qt.Orientation.Horizontal, self)
-        max_value = int(10.0 * scale)  # Assuming the maximum PID gain is 10.0
-        slider.setRange(0, max_value)
+        slider_min = int(min_value * scale)
+        slider_max = int(max_value * scale)
+        slider.setRange(slider_min, slider_max)
         slider.setValue(int(initial_value * scale))
         slider.valueChanged.connect(self.update_graph)
         layout.addWidget(slider, row, 1)
 
-        # Set precision for each slider
-        precision = 3 if scale == self.ki_scale else 2
+        # Set precision based on scale
+        if scale == self.ki_scale or scale == self.damping_ratio_scale:
+            precision = 3
+        else:
+            precision = 2
         value_label = QLabel(f"{(slider.value() / scale):.{precision}f}", self)
         value_label.setStyleSheet("color: #a9b7c6; font: 10pt;")
         layout.addWidget(value_label, row, 2)
@@ -120,7 +136,7 @@ class DarkModeWindow(QMainWindow):
         setpoint_layout.addWidget(label)
 
         self.slider_setpoint = QSlider(Qt.Orientation.Horizontal, self)
-        self.slider_setpoint.setRange(0, 400)
+        self.slider_setpoint.setRange(60, 400)  # Updated to start from 60 bar
         self.slider_setpoint.setValue(int(self.pid_controller.setpoint))
         self.slider_setpoint.valueChanged.connect(self.update_graph)
         setpoint_layout.addWidget(self.slider_setpoint)
@@ -272,45 +288,64 @@ class DarkModeWindow(QMainWindow):
         self.timer.stop()
         if hasattr(self, 'current_value'):
             del self.current_value
+        if hasattr(self, 'velocity'):
+            del self.velocity
         logging.info("Simulation reset.")
 
     def update_real_time(self):
         """Update the graph in real-time during the simulation."""
         if not hasattr(self, 'current_value'):
-            self.current_value = 0.0
+            self.current_value = 60.0  # Starting from offset 60 bar
+        if not hasattr(self, 'velocity'):
+            self.velocity = 0.0
 
         output = self.pid_controller.update(self.current_value)
-        # First-order process model: dPV/dt = (Output - PV) / tau
-        tau = 1.0  # Time constant; adjust as needed for realism
-        self.current_value += (output - self.current_value) * (self.pid_controller.sample_time / tau)
+
+        # Second-order process model
+        omega_n = self.pid_controller.omega_n
+        damping_ratio = self.pid_controller.damping_ratio
+        acceleration = (omega_n ** 2) * (output - self.current_value) - 2 * damping_ratio * omega_n * self.velocity
+        self.velocity += acceleration * self.pid_controller.sample_time
+        self.current_value += self.velocity * self.pid_controller.sample_time
+
+        # Clamp current_value to physical limits
+        self.current_value = max(0, min(self.current_value, 400))
 
         # Update graph data
         current_time = len(self.line.get_xdata()) * self.pid_controller.sample_time
         self.line.set_xdata(list(self.line.get_xdata()) + [current_time])
         self.line.set_ydata(list(self.line.get_ydata()) + [self.current_value])
 
-        self.ax.relim()
-        self.ax.autoscale_view()
+        # Set fixed limits to prevent graph distortion
+        self.ax.set_xlim(0, current_time + 1)
+        self.ax.set_ylim(0, 400)
         self.canvas.draw()
 
     def update_graph(self):
-        """Update the graph based on the current slider values for Kp, Ki, Kd, and setpoint."""
+        """Update the graph based on the current slider values for Kp, Ki, Kd,
+           and setpoint."""
         # Retrieve and scale the slider values
         kp = self.slider_kp.value() / self.kp_scale
         ki = self.slider_ki.value() / self.ki_scale
         kd = self.slider_kd.value() / self.kd_scale
-        setpoint = self.slider_setpoint.value()  # Already in 0 to 400
+        omega_n = self.slider_omega_n.value() / self.omega_n_scale
+        damping_ratio = self.slider_damping_ratio.value() / self.damping_ratio_scale
+        setpoint = self.slider_setpoint.value()  # Already in 60 to 400
 
         # Update PID controller parameters
         self.pid_controller.kp = kp
         self.pid_controller.ki = ki
         self.pid_controller.kd = kd
         self.pid_controller.setpoint = setpoint
+        self.pid_controller.omega_n = omega_n
+        self.pid_controller.damping_ratio = damping_ratio
 
         # Update slider labels to reflect current values
         self.slider_kp_label.setText(f"{kp:.2f}")
         self.slider_ki_label.setText(f"{ki:.3f}")
         self.slider_kd_label.setText(f"{kd:.2f}")
+        self.slider_omega_n_label.setText(f"{omega_n:.2f}")
+        self.slider_damping_ratio_label.setText(f"{damping_ratio:.3f}")
         self.slider_setpoint_label.setText(f"{setpoint:.0f}")
 
         # Reset the PID controller for a fresh start
@@ -318,7 +353,10 @@ class DarkModeWindow(QMainWindow):
 
         # Simulate the PID response
         simulation_time = 10.0  # Total simulation time in seconds
-        time, output = self.pid_controller.simulate(simulation_time)
+        time, output = self.pid_controller.simulate(simulation_time, initial_value=60.0)
+
+        # Clamp output to physical limits
+        output = [max(0, min(val, 400)) for val in output]
 
         # Update performance metrics based on simulation
         self.update_metrics(time, output)
@@ -326,8 +364,8 @@ class DarkModeWindow(QMainWindow):
         # Update the graph data
         self.line.set_xdata(time)
         self.line.set_ydata(output)
-        self.ax.relim()
-        self.ax.autoscale_view()
+        self.ax.set_xlim(0, max(time))
+        self.ax.set_ylim(50, 410)
         self.canvas.draw()
 
     def save_config(self):
@@ -345,7 +383,9 @@ class DarkModeWindow(QMainWindow):
                 'kp': self.pid_controller.kp,
                 'ki': self.pid_controller.ki,
                 'kd': self.pid_controller.kd,
-                'setpoint': self.pid_controller.setpoint
+                'setpoint': self.pid_controller.setpoint,
+                'omega_n': self.pid_controller.omega_n,
+                'damping_ratio': self.pid_controller.damping_ratio
             }
             try:
                 with open(file_path, 'w') as f:
@@ -374,12 +414,16 @@ class DarkModeWindow(QMainWindow):
                 self.pid_controller.ki = config.get('ki', self.pid_controller.ki)
                 self.pid_controller.kd = config.get('kd', self.pid_controller.kd)
                 self.pid_controller.setpoint = config.get('setpoint', self.pid_controller.setpoint)
+                self.pid_controller.omega_n = config.get('omega_n', self.pid_controller.omega_n)
+                self.pid_controller.damping_ratio = config.get('damping_ratio', self.pid_controller.damping_ratio)
 
                 # Update sliders to reflect loaded configuration
                 self.slider_kp.setValue(int(self.pid_controller.kp * self.kp_scale))
                 self.slider_ki.setValue(int(self.pid_controller.ki * self.ki_scale))
                 self.slider_kd.setValue(int(self.pid_controller.kd * self.kd_scale))
                 self.slider_setpoint.setValue(int(self.pid_controller.setpoint))
+                self.slider_omega_n.setValue(int(self.pid_controller.omega_n * self.omega_n_scale))
+                self.slider_damping_ratio.setValue(int(self.pid_controller.damping_ratio * self.damping_ratio_scale))
 
                 # Update the graph with new configuration
                 self.update_graph()

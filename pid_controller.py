@@ -2,7 +2,8 @@
 
 class PIDController:
     def __init__(self, kp=0.2, ki=0.01, kd=0.05, setpoint=200.0,
-                 output_limits=(0, 400), sample_time=0.01):
+                 output_limits=(0, 400), sample_time=0.01, omega_n=1.0,
+                 damping_ratio=0.7):
         """
         Initialize the PID controller with configurable parameters.
 
@@ -13,6 +14,8 @@ class PIDController:
             setpoint (float): Desired target value.
             output_limits (tuple): Lower and upper limits for the output.
             sample_time (float): Time interval between control updates in secs.
+            omega_n (float): Natural frequency of the process.
+            damping_ratio (float): Damping ratio of the process.
         """
         self.kp = kp
         self.ki = ki
@@ -20,6 +23,9 @@ class PIDController:
         self.setpoint = setpoint
         self.output_limits = output_limits
         self.sample_time = sample_time
+
+        self.omega_n = omega_n
+        self.damping_ratio = damping_ratio
 
         self._integral = 0.0
         self._last_error = 0.0
@@ -63,15 +69,16 @@ class PIDController:
 
         return output
 
-    def simulate(self, simulation_time, initial_value=0.0, tau=1.0):
+    def simulate(self, simulation_time, initial_value=60.0, initial_velocity=0.0):
         """
         Simulate the PID controller response over a specified time using a
-        first-order process model.
+        second-order process model.
 
         Parameters:
             simulation_time (float): Total simulation time in seconds.
             initial_value (float): Initial value of the process variable.
-            tau (float): Time constant of the process (in seconds).
+            initial_velocity (float): Initial velocity (rate of change) of the
+            process variable.
 
         Returns:
             tuple: (time_steps, output_values) representing the PID response
@@ -79,14 +86,24 @@ class PIDController:
         """
         num_steps = int(simulation_time / self.sample_time)
         current_value = initial_value
+        velocity = initial_velocity
         time_steps = []
         output_values = []
 
         for step in range(num_steps):
             current_time = step * self.sample_time
             output = self.update(current_value)
-            # First-order process model: dPV/dt = (Output - PV) / tau
-            current_value += (output - current_value) * (self.sample_time / tau)
+
+            # Second-order process model
+            omega_n = self.omega_n
+            damping_ratio = self.damping_ratio
+            acceleration = (omega_n ** 2) * (output - current_value) - 2 * damping_ratio * omega_n * velocity
+            velocity += acceleration * self.sample_time
+            current_value += velocity * self.sample_time
+
+            # Clamp current_value to physical limits
+            current_value = max(0, min(current_value, 400))
+
             time_steps.append(current_time)
             output_values.append(current_value)
 
