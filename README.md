@@ -16,7 +16,7 @@ A graphical application for simulating and visualizing the behavior of a PID (Pr
 
 ## Features
 
-- **Interactive Sliders:** Adjust `Kp`, `Ki`, `Kd`, and setpoint values with precision.
+- **Interactive Sliders:** Adjust `Kp`, `Ki`, `Kd`, setpoint values, **natural frequency (ωn)**, and **damping ratio (ζ)** with precision.
 - **Real-Time Simulation:** Start, stop, and reset the PID simulation to observe immediate effects.
 - **Performance Metrics:** View key metrics such as Rise Time, Settling Time, Overshoot, and Steady-State Error.
 - **Save & Load Configurations:** Persist and retrieve PID settings using JSON files.
