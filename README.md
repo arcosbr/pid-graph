@@ -12,15 +12,16 @@ A graphical application for simulating and visualizing the behavior of a PID (Pr
 - [Dependencies](#dependencies)
 - [Contributing](#contributing)
 - [License](#license)
-- [Contact](#contact)
 
 ## Features
 
 - **Interactive Sliders:** Adjust `Kp`, `Ki`, `Kd`, setpoint values, **natural frequency (ωn)**, and **damping ratio (ζ)** with precision.
-- **Real-Time Simulation:** Start, stop, and reset the PID simulation to observe immediate effects.
+- **Process Model Selection:** Choose between **First Order** and **Second Order** process models to simulate different system dynamics.
+- **Disturbance and Noise Simulation:** Introduce external disturbances and measurement noise to observe their effects on the PID controller's performance.
+- **Real-Time Simulation:** Start, pause, and reset the PID simulation to observe immediate effects.
 - **Performance Metrics:** View key metrics such as Rise Time, Settling Time, Overshoot, and Steady-State Error.
 - **Save & Load Configurations:** Persist and retrieve PID settings using JSON files.
-- **Dynamic Graphing:** Visualize the PID controller's response with a real-time updating graph.
+- **Dynamic Graphing:** Visualize the PID controller's response and setpoint with real-time updating graphs.
 - **Dark Theme:** User-friendly dark mode interface for reduced eye strain and enhanced visual appeal.
 
 ## Installation
@@ -29,7 +30,7 @@ A graphical application for simulating and visualizing the behavior of a PID (Pr
 
    ```bash
    git clone https://github.com/arcosbr/pid-graph.git
-   cd pid-grap
+   cd pid-graph
    ```
 
 2. **Create and Activate a Virtual Environment (Recommended):**
@@ -64,21 +65,27 @@ python main.py
 
 Upon launching, you'll see the PID Controller Simulator window with the following components:
 
-- **Sliders:** Adjust `Kp`, `Ki`, `Kd`, and setpoint values.
-- **Graph:** Visual representation of the PID response.
+- **Sliders:** Adjust `Kp`, `Ki`, `Kd`, setpoint values, natural frequency (ωn), damping ratio (ζ), disturbance, and noise standard deviation.
+- **Graph:** Visual representation of the PID response and setpoint.
 - **Performance Metrics:** Displays Rise Time, Settling Time, Overshoot, and Steady-State Error.
 - **Control Buttons:**
   - **Start:** Begin the real-time simulation.
-  - **Stop:** Pause the simulation.
+  - **Pause:** Temporarily halt the simulation.
   - **Reset:** Reset the simulation and clear the graph.
   - **Save Config:** Save current PID settings to a JSON file.
   - **Load Config:** Load PID settings from a JSON file.
+
+### Additional Settings
+
+- **Process Model:** Select between **First Order** and **Second Order** process models to simulate different system behaviors.
+- **Disturbance:** Introduce external disturbances to the system to observe how the PID controller compensates.
+- **Noise Std Dev:** Add measurement noise to simulate real-world sensor inaccuracies.
 
 ## Configuration
 
 ### Saving Configuration
 
-1. Adjust the `Kp`, `Ki`, `Kd`, and setpoint sliders to your desired values.
+1. Adjust the `Kp`, `Ki`, `Kd`, setpoint, process model, disturbance, and noise sliders to your desired values.
 2. Click the **"Save Config"** button.
 3. In the file dialog, choose a location and filename (e.g., `config1.json`) and save.
 
@@ -86,7 +93,7 @@ Upon launching, you'll see the PID Controller Simulator window with the followin
 
 1. Click the **"Load Config"** button.
 2. In the file dialog, navigate to and select a previously saved JSON configuration file.
-3. The sliders and graph will update to reflect the loaded PID parameters.
+3. The sliders and graph will update to reflect the loaded PID parameters and settings.
 
 ## Performance Metrics
 
@@ -105,12 +112,52 @@ The project relies on the following Python packages:
 
 - [PyQt6](https://pypi.org/project/PyQt6/) >= 6.0.0
 - [matplotlib](https://pypi.org/project/matplotlib/) >= 3.0.0
+- [numpy](https://pypi.org/project/numpy/) >= 1.18.0
 
 Ensure that these dependencies are installed via the provided `requirements.txt`:
 
 ```bash
 pip install -r requirements.txt
 ```
+
+**`requirements.txt`:**
+
+```plaintext
+PyQt6>=6.0.0
+matplotlib>=3.0.0
+numpy>=1.18.0
+```
+
+## Additional Notes
+
+### Updated Features Explained
+
+1. **Process Model Selection:**
+   - **First Order:** Simulates a first-order system where the process variable changes proportionally to the difference between the controller output and the current value.
+   - **Second Order:** Simulates a second-order system introducing natural frequency and damping ratio to model more complex dynamics.
+
+2. **Disturbance and Noise Simulation:**
+   - **Disturbance:** External factors affecting the system, allowing users to see how the PID controller compensates for unexpected changes.
+   - **Noise Std Dev:** Simulates real-world sensor noise, helping users understand the controller's robustness against measurement inaccuracies.
+
+3. **Pause Simulation:**
+   - Allows users to temporarily halt the simulation without resetting, enabling closer inspection of the current system state.
+
+4. **Improved Reset Functionality:**
+   - Resets all parameters to their default values without duplicating graph labels, ensuring a clean state for new simulations.
+
+### Usage Tips
+
+- **Tuning PID Parameters:** Start with moderate values for `Kp`, `Ki`, and `Kd`, then adjust incrementally while observing the system's response to achieve the desired performance.
+- **Experiment with Models:** Switching between first-order and second-order models can help you understand how different system dynamics affect PID controller behavior.
+- **Simulate Real-World Scenarios:** Introduce disturbances and noise to test the controller's effectiveness in handling real-world uncertainties.
+
+### Troubleshooting
+
+- **Graph Labels Duplicating:** If you encounter duplicated labels after resetting, ensure you are using the latest version of `window.py` as provided above.
+- **Application Not Starting:** Verify that all dependencies are correctly installed and that you're using a compatible Python version (3.7 or higher).
+
+Feel free to reach out through the [Contact](#contact) section if you need further assistance or have any questions regarding the application.
 
 ## Contributing
 

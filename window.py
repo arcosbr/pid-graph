@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QSlider, QLabel,
-    QHBoxLayout, QGridLayout, QFileDialog, QMessageBox, QPushButton
+    QHBoxLayout, QGridLayout, QFileDialog, QMessageBox, QPushButton, QComboBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -10,9 +10,8 @@ from matplotlib.figure import Figure
 from pid_controller import PIDController
 import json
 import logging
-
-# Configure logging for debugging purposes
-# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+from typing import List
+import numpy as np  # Ensure numpy is imported for noise simulation
 
 
 class DarkModeWindow(QMainWindow):
@@ -20,7 +19,7 @@ class DarkModeWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PID Response")
+        self.setWindowTitle("PID Controller Simulation")
         self.setStyleSheet("background-color: #2b2b2b; color: #a9b7c6;")
         self.setGeometry(100, 100, 1000, 700)
 
@@ -44,7 +43,7 @@ class DarkModeWindow(QMainWindow):
 
         # Initialize PID controller with default values
         self.pid_controller = PIDController(
-            kp=0.1, ki=0.005, kd=0.02, setpoint=200.0,
+            kp=1.0, ki=0.1, kd=0.05, setpoint=200.0,  # Updated default values
             output_limits=(0, 400), sample_time=0.01, omega_n=1.0, damping_ratio=0.7
         )
 
@@ -69,6 +68,9 @@ class DarkModeWindow(QMainWindow):
         # Create setpoint slider
         self.create_setpoint_slider(main_layout)
 
+        # Create additional settings
+        self.create_additional_settings(main_layout)
+
         # Create control buttons
         self.create_control_buttons(main_layout)
 
@@ -83,8 +85,13 @@ class DarkModeWindow(QMainWindow):
         self.timer.timeout.connect(self.update_real_time)
         self.is_running = False
 
-    def _configure_graph(self):
+        # Data storage for real-time plotting
+        self.time_data: List[float] = []
+        self.output_data: List[float] = []
+
+    def _configure_graph(self) -> None:
         """Visual configuration of the graph with a dark theme."""
+        self.ax.clear()  # Clear the axes to prevent duplication
         self.ax.set_facecolor("#313335")
         self.ax.tick_params(axis='x', colors="#A9B7C6", direction='inout')
         self.ax.tick_params(axis='y', colors="#A9B7C6", direction='inout')
@@ -92,15 +99,33 @@ class DarkModeWindow(QMainWindow):
         self.ax.yaxis.label.set_color("#A9B7C6")
         self.ax.title.set_color("#A9B7C6")
         self.ax.set_xlabel("Time (s)")
-        self.ax.set_ylabel("Pressure (Bar)")
-        self.ax.set_title("PID Step Response")
-        self.ax.set_ylim(50, 410)  # Adjusted to include values from 60 to 400 bar
+        self.ax.set_ylabel("Process Variable")
+        self.ax.set_title("PID Controller Response")
+        self.ax.set_ylim(50, 410)
         self.ax.grid(True, color="#505050", linestyle="--")
-        self.line, = self.ax.plot([], [], color="#CC7832", label='Output')
+
+        # Initialize lines if they don't exist
+        if not hasattr(self, 'line_output'):
+            self.line_output, = self.ax.plot([], [], color="#CC7832", label='Process Variable')
+            self.line_setpoint, = self.ax.plot([], [], color="#6A8759", linestyle='--', label='Setpoint')
+        else:
+            # Clear data from lines
+            self.line_output.set_data([], [])
+            self.line_setpoint.set_data([], [])
+
         self.ax.legend()
 
-    def create_slider(self, layout, label_text, slider_name, initial_value,
-                      scale, row, min_value, max_value):
+    def create_slider(
+        self,
+        layout: QGridLayout,
+        label_text: str,
+        slider_name: str,
+        initial_value: float,
+        scale: float,
+        row: int,
+        min_value: float,
+        max_value: float
+    ) -> None:
         """Create sliders for parameters with correct initial settings."""
         label = QLabel(label_text, self)
         label.setStyleSheet("color: #a9b7c6; font: 10pt;")
@@ -127,16 +152,16 @@ class DarkModeWindow(QMainWindow):
         setattr(self, slider_name, slider)
         setattr(self, f"{slider_name}_label", value_label)
 
-    def create_setpoint_slider(self, layout):
+    def create_setpoint_slider(self, layout: QVBoxLayout) -> None:
         """Configure the slider for setpoint adjustment."""
         setpoint_layout = QHBoxLayout()
 
-        label = QLabel("Setpoint (Bar):", self)
+        label = QLabel("Setpoint:", self)
         label.setStyleSheet("color: #a9b7c6; font: 10pt;")
         setpoint_layout.addWidget(label)
 
         self.slider_setpoint = QSlider(Qt.Orientation.Horizontal, self)
-        self.slider_setpoint.setRange(60, 400)  # Updated to start from 60 bar
+        self.slider_setpoint.setRange(60, 400)
         self.slider_setpoint.setValue(int(self.pid_controller.setpoint))
         self.slider_setpoint.valueChanged.connect(self.update_graph)
         setpoint_layout.addWidget(self.slider_setpoint)
@@ -147,8 +172,81 @@ class DarkModeWindow(QMainWindow):
 
         layout.addLayout(setpoint_layout)
 
-    def create_control_buttons(self, layout):
-        """Configure control buttons (Start, Stop, Reset, Save Config, Load Config)."""
+    def create_additional_settings(self, layout: QVBoxLayout) -> None:
+        """Create additional settings for simulation."""
+        settings_layout = QHBoxLayout()
+
+        # Model Type ComboBox
+        model_label = QLabel("Process Model:", self)
+        model_label.setStyleSheet("color: #a9b7c6; font: 10pt;")
+        settings_layout.addWidget(model_label)
+
+        self.model_combo = QComboBox(self)
+        self.model_combo.addItems(["Second Order", "First Order"])
+        self.model_combo.setStyleSheet("color: #a9b7c6; font: 10pt;")
+        self.model_combo.currentIndexChanged.connect(self.update_graph)
+        settings_layout.addWidget(self.model_combo)
+
+        # Disturbance Slider
+        self.create_slider_in_layout(
+            settings_layout,
+            label_text="Disturbance:",
+            slider_name="slider_disturbance",
+            initial_value=0.0,
+            scale=100.0,
+            precision=2,
+            min_value=-50.0,
+            max_value=50.0
+        )
+
+        # Noise Slider
+        self.create_slider_in_layout(
+            settings_layout,
+            label_text="Noise Std Dev:",
+            slider_name="slider_noise",
+            initial_value=0.0,
+            scale=1000.0,
+            precision=2,
+            min_value=0.0,
+            max_value=10.0
+        )
+
+        layout.addLayout(settings_layout)
+
+    def create_slider_in_layout(
+        self,
+        layout: QHBoxLayout,
+        label_text: str,
+        slider_name: str,
+        initial_value: float,
+        scale: float,
+        precision: int,
+        min_value: float,
+        max_value: float
+    ) -> None:
+        """Helper function to create sliders in a given layout."""
+        label = QLabel(label_text, self)
+        label.setStyleSheet("color: #a9b7c6; font: 10pt;")
+        layout.addWidget(label)
+
+        slider = QSlider(Qt.Orientation.Horizontal, self)
+        slider_min = int(min_value * scale)
+        slider_max = int(max_value * scale)
+        slider.setRange(slider_min, slider_max)
+        slider.setValue(int(initial_value * scale))
+        slider.valueChanged.connect(self.update_graph)
+        layout.addWidget(slider)
+
+        value_label = QLabel(f"{(slider.value() / scale):.{precision}f}", self)
+        value_label.setStyleSheet("color: #a9b7c6; font: 10pt;")
+        layout.addWidget(value_label)
+
+        setattr(self, slider_name, slider)
+        setattr(self, f"{slider_name}_label", value_label)
+
+    def create_control_buttons(self, layout: QVBoxLayout) -> None:
+        """Configure control buttons
+           (Start, Pause, Reset, Save Config, Load Config)."""
         buttons_layout = QHBoxLayout()
 
         # Start Button
@@ -168,22 +266,22 @@ class DarkModeWindow(QMainWindow):
         self.button_start.clicked.connect(self.start_simulation)
         buttons_layout.addWidget(self.button_start)
 
-        # Stop Button
-        self.button_stop = QPushButton("Stop", self)
-        self.button_stop.setStyleSheet("""
+        # Pause Button
+        self.button_pause = QPushButton("Pause", self)
+        self.button_pause.setStyleSheet("""
             QPushButton {
-                background-color: #f44336;
+                background-color: #f0ad4e;
                 color: white;
                 padding: 5px 15px;
                 border: none;
                 border-radius: 4px;
             }
             QPushButton:hover {
-                background-color: #da190b;
+                background-color: #ec971f;
             }
         """)
-        self.button_stop.clicked.connect(self.stop_simulation)
-        buttons_layout.addWidget(self.button_stop)
+        self.button_pause.clicked.connect(self.pause_simulation)
+        buttons_layout.addWidget(self.button_pause)
 
         # Reset Button
         self.button_reset = QPushButton("Reset", self)
@@ -238,7 +336,7 @@ class DarkModeWindow(QMainWindow):
 
         layout.addLayout(buttons_layout)
 
-    def create_metrics_display(self, layout):
+    def create_metrics_display(self, layout: QVBoxLayout) -> None:
         """Create labels to display performance metrics."""
         metrics_layout = QHBoxLayout()
 
@@ -264,26 +362,25 @@ class DarkModeWindow(QMainWindow):
 
         layout.addLayout(metrics_layout)
 
-    def start_simulation(self):
+    def start_simulation(self) -> None:
         """Start real-time simulation."""
         if not self.is_running:
             self.timer.start(int(self.pid_controller.sample_time * 1000))  # Convert to milliseconds
             self.is_running = True
             logging.info("Simulation started.")
 
-    def stop_simulation(self):
-        """Stop real-time simulation."""
+    def pause_simulation(self) -> None:
+        """Pause the simulation."""
         if self.is_running:
             self.timer.stop()
             self.is_running = False
-            logging.info("Simulation stopped.")
+            logging.info("Simulation paused.")
 
-    def reset_simulation(self):
+    def reset_simulation(self) -> None:
         """Reset the PID controller and clear the graph."""
         self.pid_controller.reset()
-        self.ax.cla()
-        self._configure_graph()
-        self.update_graph()
+        self.time_data = []
+        self.output_data = []
         self.is_running = False
         self.timer.stop()
         if hasattr(self, 'current_value'):
@@ -292,45 +389,107 @@ class DarkModeWindow(QMainWindow):
             del self.velocity
         logging.info("Simulation reset.")
 
-    def update_real_time(self):
+        # Clear the data from the lines
+        self.line_output.set_data([], [])
+        self.line_setpoint.set_data([], [])
+
+        # Clear the axes without re-adding labels
+        self.ax.relim()
+        self.ax.autoscale_view()
+
+        # Update sliders to default positions
+        self.slider_kp.setValue(int(self.pid_controller.kp * self.kp_scale))
+        self.slider_ki.setValue(int(self.pid_controller.ki * self.ki_scale))
+        self.slider_kd.setValue(int(self.pid_controller.kd * self.kd_scale))
+        self.slider_setpoint.setValue(int(self.pid_controller.setpoint))
+        self.slider_omega_n.setValue(int(self.pid_controller.omega_n * self.omega_n_scale))
+        self.slider_damping_ratio.setValue(int(self.pid_controller.damping_ratio * self.damping_ratio_scale))
+        self.slider_disturbance.setValue(0)
+        self.slider_noise.setValue(0)
+
+        # Update labels to reflect reset values
+        self.update_graph()
+
+        # Redraw the canvas
+        self.canvas.draw()
+
+    def update_real_time(self) -> None:
         """Update the graph in real-time during the simulation."""
         if not hasattr(self, 'current_value'):
-            self.current_value = 60.0  # Starting from offset 60 bar
+            self.current_value = 60.0  # Starting from 60
         if not hasattr(self, 'velocity'):
             self.velocity = 0.0
 
-        output = self.pid_controller.update(self.current_value)
+        # Read disturbance and noise values
+        disturbance = self.slider_disturbance.value() / 100.0
+        noise_std = self.slider_noise.value() / 1000.0
 
-        # Second-order process model
-        omega_n = self.pid_controller.omega_n
-        damping_ratio = self.pid_controller.damping_ratio
-        acceleration = (omega_n ** 2) * (output - self.current_value) - 2 * damping_ratio * omega_n * self.velocity
-        self.velocity += acceleration * self.pid_controller.sample_time
-        self.current_value += self.velocity * self.pid_controller.sample_time
+        # Model type
+        model_type = "second_order" if self.model_combo.currentText() == "Second Order" else "first_order"
+
+        # Measurement noise
+        measurement = self.current_value + np.random.normal(0, noise_std)
+
+        output = self.pid_controller.update(measurement)
+
+        # Apply disturbance at half simulation time
+        if len(self.time_data) * self.pid_controller.sample_time >= 5.0:
+            disturbance_value = disturbance
+        else:
+            disturbance_value = 0.0
+
+        # Process model
+        if model_type == "second_order":
+            # Second-order process model
+            omega_n = self.pid_controller.omega_n
+            damping_ratio = self.pid_controller.damping_ratio
+            acceleration = (omega_n ** 2) * (output - self.current_value) - 2 * damping_ratio * omega_n * self.velocity
+            self.velocity += acceleration * self.pid_controller.sample_time
+            self.current_value += self.velocity * self.pid_controller.sample_time
+        else:
+            # First-order process model
+            tau = 1 / self.pid_controller.omega_n  # Time constant
+            self.current_value += (output - self.current_value) / tau * self.pid_controller.sample_time
+
+        # Add disturbance
+        self.current_value += disturbance_value * self.pid_controller.sample_time
 
         # Clamp current_value to physical limits
         self.current_value = max(0, min(self.current_value, 400))
 
-        # Update graph data
-        current_time = len(self.line.get_xdata()) * self.pid_controller.sample_time
-        self.line.set_xdata(list(self.line.get_xdata()) + [current_time])
-        self.line.set_ydata(list(self.line.get_ydata()) + [self.current_value])
+        # Update data lists
+        current_time = len(self.time_data) * self.pid_controller.sample_time
+        self.time_data.append(current_time)
+        self.output_data.append(self.current_value)
 
-        # Set fixed limits to prevent graph distortion
-        self.ax.set_xlim(0, current_time + 1)
-        self.ax.set_ylim(0, 400)
+        # Update lines
+        self.line_output.set_xdata(self.time_data)
+        self.line_output.set_ydata(self.output_data)
+
+        # Update setpoint line
+        self.line_setpoint.set_xdata(self.time_data)
+        self.line_setpoint.set_ydata([self.pid_controller.setpoint] * len(self.time_data))
+
+        # Adjust axes
+        self.ax.set_xlim(0, max(self.time_data) + 1)
+        self.ax.set_ylim(50, 410)
+
+        # Redraw canvas
         self.canvas.draw()
 
-    def update_graph(self):
-        """Update the graph based on the current slider values for Kp, Ki, Kd,
-           and setpoint."""
+    def update_graph(self) -> None:
+        """Update the graph based on the current slider values for Kp, Ki, Kd, and setpoint."""
         # Retrieve and scale the slider values
         kp = self.slider_kp.value() / self.kp_scale
         ki = self.slider_ki.value() / self.ki_scale
         kd = self.slider_kd.value() / self.kd_scale
         omega_n = self.slider_omega_n.value() / self.omega_n_scale
         damping_ratio = self.slider_damping_ratio.value() / self.damping_ratio_scale
-        setpoint = self.slider_setpoint.value()  # Already in 60 to 400
+        setpoint = self.slider_setpoint.value()
+
+        disturbance = self.slider_disturbance.value() / 100.0
+        noise_std = self.slider_noise.value() / 1000.0
+        model_type = "second_order" if self.model_combo.currentText() == "Second Order" else "first_order"
 
         # Update PID controller parameters
         self.pid_controller.kp = kp
@@ -348,12 +507,21 @@ class DarkModeWindow(QMainWindow):
         self.slider_damping_ratio_label.setText(f"{damping_ratio:.3f}")
         self.slider_setpoint_label.setText(f"{setpoint:.0f}")
 
+        self.slider_disturbance_label.setText(f"{disturbance:.2f}")
+        self.slider_noise_label.setText(f"{noise_std:.2f}")
+
         # Reset the PID controller for a fresh start
         self.pid_controller.reset()
 
         # Simulate the PID response
         simulation_time = 10.0  # Total simulation time in seconds
-        time, output = self.pid_controller.simulate(simulation_time, initial_value=60.0)
+        time, output = self.pid_controller.simulate(
+            simulation_time,
+            initial_value=60.0,
+            disturbance=disturbance,
+            noise_std=noise_std,
+            model_type=model_type
+        )
 
         # Clamp output to physical limits
         output = [max(0, min(val, 400)) for val in output]
@@ -362,13 +530,18 @@ class DarkModeWindow(QMainWindow):
         self.update_metrics(time, output)
 
         # Update the graph data
-        self.line.set_xdata(time)
-        self.line.set_ydata(output)
+        self.line_output.set_xdata(time)
+        self.line_output.set_ydata(output)
+
+        # Update setpoint line
+        self.line_setpoint.set_xdata(time)
+        self.line_setpoint.set_ydata([setpoint] * len(time))
+
         self.ax.set_xlim(0, max(time))
         self.ax.set_ylim(50, 410)
         self.canvas.draw()
 
-    def save_config(self):
+    def save_config(self) -> None:
         """Save the current PID configuration to a JSON file."""
         options = QFileDialog.Option.DontUseNativeDialog
         file_path, _ = QFileDialog.getSaveFileName(
@@ -385,7 +558,10 @@ class DarkModeWindow(QMainWindow):
                 'kd': self.pid_controller.kd,
                 'setpoint': self.pid_controller.setpoint,
                 'omega_n': self.pid_controller.omega_n,
-                'damping_ratio': self.pid_controller.damping_ratio
+                'damping_ratio': self.pid_controller.damping_ratio,
+                'disturbance': self.slider_disturbance.value() / 100.0,
+                'noise_std': self.slider_noise.value() / 1000.0,
+                'model_type': self.model_combo.currentText()
             }
             try:
                 with open(file_path, 'w') as f:
@@ -396,7 +572,7 @@ class DarkModeWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Failed to save configuration:\n{e}")
                 logging.error(f"Failed to save configuration: {e}")
 
-    def load_config(self):
+    def load_config(self) -> None:
         """Load PID configuration from a JSON file."""
         options = QFileDialog.Option.DontUseNativeDialog
         file_path, _ = QFileDialog.getOpenFileName(
@@ -416,6 +592,9 @@ class DarkModeWindow(QMainWindow):
                 self.pid_controller.setpoint = config.get('setpoint', self.pid_controller.setpoint)
                 self.pid_controller.omega_n = config.get('omega_n', self.pid_controller.omega_n)
                 self.pid_controller.damping_ratio = config.get('damping_ratio', self.pid_controller.damping_ratio)
+                disturbance = config.get('disturbance', 0.0)
+                noise_std = config.get('noise_std', 0.0)
+                model_type = config.get('model_type', 'Second Order')
 
                 # Update sliders to reflect loaded configuration
                 self.slider_kp.setValue(int(self.pid_controller.kp * self.kp_scale))
@@ -424,6 +603,12 @@ class DarkModeWindow(QMainWindow):
                 self.slider_setpoint.setValue(int(self.pid_controller.setpoint))
                 self.slider_omega_n.setValue(int(self.pid_controller.omega_n * self.omega_n_scale))
                 self.slider_damping_ratio.setValue(int(self.pid_controller.damping_ratio * self.damping_ratio_scale))
+                self.slider_disturbance.setValue(int(disturbance * 100.0))
+                self.slider_noise.setValue(int(noise_std * 1000.0))
+
+                index = self.model_combo.findText(model_type)
+                if index != -1:
+                    self.model_combo.setCurrentIndex(index)
 
                 # Update the graph with new configuration
                 self.update_graph()
@@ -434,7 +619,7 @@ class DarkModeWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Failed to load configuration:\n{e}")
                 logging.error(f"Failed to load configuration: {e}")
 
-    def update_metrics(self, time, output):
+    def update_metrics(self, time: List[float], output: List[float]) -> None:
         """
         Update performance metrics based on the simulation output.
 
@@ -449,11 +634,12 @@ class DarkModeWindow(QMainWindow):
             self.label_steady_state_error.setText("Steady-State Error: N/A")
             return
 
+        setpoint = self.pid_controller.setpoint
         final_value = output[-1]
 
         # Calculate Rise Time (time to reach 90% of setpoint)
         try:
-            rise_time_index = next(i for i, val in enumerate(output) if val >= 0.9 * self.pid_controller.setpoint)
+            rise_time_index = next(i for i, val in enumerate(output) if val >= 0.9 * setpoint)
             rise_time = time[rise_time_index]
         except StopIteration:
             rise_time = None
@@ -462,17 +648,17 @@ class DarkModeWindow(QMainWindow):
         try:
             settling_time_index = next(
                 i for i in range(len(output))
-                if all(abs(val - self.pid_controller.setpoint) <= 0.02 * self.pid_controller.setpoint for val in output[i:])
+                if all(abs(val - setpoint) <= 0.02 * setpoint for val in output[i:])
             )
             settling_time = time[settling_time_index]
         except StopIteration:
             settling_time = None
 
         # Calculate Overshoot
-        overshoot = max(output) - self.pid_controller.setpoint
+        overshoot = max(output) - setpoint
 
         # Calculate Steady-State Error
-        steady_state_error = abs(self.pid_controller.setpoint - final_value)
+        steady_state_error = abs(setpoint - final_value)
 
         # Update labels
         self.label_rise_time.setText(f"Rise Time: {rise_time:.2f}s" if rise_time is not None else "Rise Time: N/A")
