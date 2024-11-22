@@ -89,6 +89,12 @@ class DarkModeWindow(QMainWindow):
         self.time_data: List[float] = []
         self.output_data: List[float] = []
 
+        # Initialize timer variables for the stopwatch
+        self.elapsed_time = 0  # in milliseconds
+        self.timer_interval = int(self.pid_controller.sample_time * 1000)  # Convert sample_time to milliseconds
+        self.display_timer = QTimer()
+        self.display_timer.timeout.connect(self.update_timer_display)
+
     def _configure_graph(self) -> None:
         """Visual configuration of the graph with a dark theme."""
         self.ax.clear()  # Clear the axes to prevent duplication
@@ -245,8 +251,7 @@ class DarkModeWindow(QMainWindow):
         setattr(self, f"{slider_name}_label", value_label)
 
     def create_control_buttons(self, layout: QVBoxLayout) -> None:
-        """Configure control buttons
-           (Start, Pause, Reset, Save Config, Load Config)."""
+        """Configure control buttons (Start, Pause, Reset, Save Config, Load Config)."""
         buttons_layout = QHBoxLayout()
 
         # Start Button
@@ -336,6 +341,11 @@ class DarkModeWindow(QMainWindow):
 
         layout.addLayout(buttons_layout)
 
+        # Add stopwatch display
+        self.timer_label = QLabel("Elapsed Time: 0 ms", self)
+        self.timer_label.setStyleSheet("color: #a9b7c6; font: 10pt;")
+        layout.addWidget(self.timer_label)
+
     def create_metrics_display(self, layout: QVBoxLayout) -> None:
         """Create labels to display performance metrics."""
         metrics_layout = QHBoxLayout()
@@ -365,7 +375,8 @@ class DarkModeWindow(QMainWindow):
     def start_simulation(self) -> None:
         """Start real-time simulation."""
         if not self.is_running:
-            self.timer.start(int(self.pid_controller.sample_time * 1000))  # Convert to milliseconds
+            self.timer.start(self.timer_interval)
+            self.display_timer.start(self.timer_interval)
             self.is_running = True
             logging.info("Simulation started.")
 
@@ -373,6 +384,7 @@ class DarkModeWindow(QMainWindow):
         """Pause the simulation."""
         if self.is_running:
             self.timer.stop()
+            self.display_timer.stop()
             self.is_running = False
             logging.info("Simulation paused.")
 
@@ -383,11 +395,16 @@ class DarkModeWindow(QMainWindow):
         self.output_data = []
         self.is_running = False
         self.timer.stop()
+        self.display_timer.stop()
         if hasattr(self, 'current_value'):
             del self.current_value
         if hasattr(self, 'velocity'):
             del self.velocity
         logging.info("Simulation reset.")
+
+        # Reset stopwatch variables
+        self.elapsed_time = 0
+        self.timer_label.setText("Elapsed Time: 0 ms")
 
         # Clear the data from the lines
         self.line_output.set_data([], [])
@@ -412,6 +429,11 @@ class DarkModeWindow(QMainWindow):
 
         # Redraw the canvas
         self.canvas.draw()
+
+    def update_timer_display(self) -> None:
+        """Update the stopwatch display."""
+        self.elapsed_time += self.timer_interval
+        self.timer_label.setText(f"Elapsed Time: {self.elapsed_time} ms")
 
     def update_real_time(self) -> None:
         """Update the graph in real-time during the simulation."""
